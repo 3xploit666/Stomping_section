@@ -1,7 +1,10 @@
 [package]
-name = "Stomping_section"
-version = "0.1.0"
-edition = "2024"
+name = "module-stomping"
+version = "0.2.0"
+edition = "2021"
+description = "Module Stomping with Just-In-Time shellcode decryption for security research"
+authors = ["3xploit666"]
+license = "MIT"
 
 [features]
 default = []
@@ -14,7 +17,8 @@ windows = { version = "0.62.1", features = [
     "Win32_System_LibraryLoader",
     "Win32_System_Threading",
     "Win32_Security",
-]}
+] }
+
 [profile.release]
 opt-level = "z"
 lto = true

@@ -1,204 +1,140 @@
-# Module Stomping with Just-In-Time Decryption
+<div align="center">
 
-![Module Stomping Technique](assets/page.png)
+# Module Stomping
+
+**Just-In-Time Shellcode Decryption via .text Section Replacement**
+
+![Module Stomping](assets/page.png)
+
+[![Rust](https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Windows](https://img.shields.io/badge/Windows_x64-0078D6?style=for-the-badge&logo=windows&logoColor=white)](https://www.microsoft.com/windows)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+
+*Advanced process injection using legitimate DLL section replacement with encrypted shellcode*
+
+</div>
+
+---
 
 ## Overview
 
-This project demonstrates an advanced Windows process injection technique called Module Stomping, enhanced with just-in-time (JIT) shellcode decryption for improved evasion capabilities. The implementation replaces the entire `.text` section of a legitimate Windows DLL with encrypted shellcode that is decrypted moments before execution.
+Module Stomping is a code injection technique that replaces the **entire `.text` section** of a legitimate Windows DLL with encrypted shellcode. The shellcode is decrypted just-in-time (< 1ms before execution), minimizing the exposure window for memory scanners.
 
-### Foundation Technique
+This technique is the foundation for more advanced variants:
 
-Module Stomping is the foundational technique for several advanced process injection methods. It serves as the base for more sophisticated variants including:
+| Variant | Description |
+|---------|-------------|
+| **Module Stomping** ← this | Complete `.text` section replacement |
+| **Function Stomping** | Targets specific exported functions |
+| **Hollow Stomping** | Combines process hollowing + module stomping |
+| **Phantom DLL Hollowing** | Creates phantom sections for code execution |
 
-- **Function Stomping**: Targets specific functions rather than entire sections
-- **Hollow Stomping**: Combines process hollowing with module stomping
-- **Phantom DLL Hollowing**: Creates phantom sections for code execution
-- **Module Shifting**: Relocates module sections before stomping
+## Execution Pipeline
 
-This implementation demonstrates the core Module Stomping technique in its purest form - complete section replacement with enhanced evasion through JIT decryption. Understanding this base technique is essential for comprehending more advanced injection methods that build upon these principles.
-
-## Technical Description
-
-Module Stomping is a code injection technique that leverages legitimate Windows DLLs already loaded in memory. Unlike traditional process injection methods, this technique modifies existing module sections, making detection more challenging for security solutions.
-
-### Key Features
-
-- **Complete Section Replacement**: Replaces the entire `.text` section of the target DLL, not just individual functions
-- **Just-In-Time Decryption**: Shellcode remains encrypted until milliseconds before execution
-- **PE Header Parsing**: Direct parsing of PE structures to locate target sections
-- **Memory Protection Management**: Careful manipulation of memory permissions to avoid detection patterns
-- **XOR Encryption**: Simple yet effective encryption to obfuscate shellcode in binary
-
-## Implementation Details
-
-### Architecture
-
-The implementation consists of several key components:
-
-1. **PE Structure Definitions**: Manual definitions of Windows PE structures for header parsing
-2. **Decryption Engine**: XOR-based decryption that writes directly to target memory
-3. **Section Locator**: PE parser to find and analyze the `.text` section
-4. **Memory Manager**: Handles permission changes with minimal exposure windows
-5. **Execution Handler**: Creates threads for shellcode execution
-
-### Process Flow
-
-1. **DLL Loading**: Load target DLL (bcrypt.dll) into process memory
-2. **Section Discovery**: Parse PE headers to locate `.text` section boundaries
-3. **Permission Modification**: Change section permissions to Read-Write (avoiding RWX)
-4. **Area Preparation**: Clear the target section while shellcode remains encrypted
-5. **JIT Decryption**: Decrypt shellcode directly into target memory location
-6. **Permission Restoration**: Immediately change permissions to Read-Execute
-7. **Execution**: Create thread to execute from stomped section
-
-### Security Considerations
-
-#### Evasion Techniques
-
-- **Minimal Exposure Window**: Decrypted shellcode exists in memory for less than 1ms before execution
-- **No Intermediate Copies**: Direct decryption to final destination reduces memory artifacts
-- **Permission Separation**: Write and Execute permissions are never combined (no RWX)
-- **Legitimate Module Usage**: Leverages trusted Windows DLLs to blend with normal operations
-
-#### Detection Vectors
-
-- Memory permission changes on legitimate DLL sections
-- Modification of known module content
-- Thread creation from modified sections
-- Behavioral analysis of unexpected module activity
-
-## Technical Specifications
-
-### Requirements
-
-- **Platform**: Windows x64
-- **Language**: Rust
-- **Dependencies**:
-  - `windows` crate for Windows API access
-  - Standard Rust toolchain
-
-### Build Configuration
-
-```toml
-[package]
-name = "Stomping_section"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-windows = { version = "0.58", features = [
-    "Win32_Foundation",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Memory",
-    "Win32_System_Threading",
-] }
+```
+┌─────────────────────────────────────────────────────────┐
+│  1. LoadLibraryA("bcrypt.dll")                          │
+│  2. Parse PE headers → locate .text section             │
+│  3. VirtualProtect → PAGE_READWRITE (no RWX)            │
+│  4. Zero .text section (shellcode still encrypted)      │
+│  5. XOR decrypt directly into .text (JIT)               │
+│  6. VirtualProtect → PAGE_EXECUTE_READ                  │
+│  7. CreateThread from stomped section                   │
+└─────────────────────────────────────────────────────────┘
+         ↑                                    ↑
+    Cleartext shellcode exists ONLY between steps 5-7 (< 1ms)
 ```
 
-### Compilation
+## Evasion Techniques
 
-Debug build with verbose output:
-```bash
-cargo build
+| Technique | Detail |
+|-----------|--------|
+| **No RWX** | Write and execute phases separated — never combined |
+| **JIT Decryption** | Shellcode encrypted until milliseconds before execution |
+| **No Intermediate Buffer** | Decrypts directly into target section — no extra copies |
+| **Legitimate Module** | Executes from `bcrypt.dll` .text — blends with normal loaded modules |
+| **PEB-based Resolution** | PE headers parsed directly, no suspicious API calls for section lookup |
+| **Conditional Debug** | Release builds produce zero console output |
+
+## Project Structure
+
+```
+src/
+├── main.rs       — Entry point, debug macros, orchestration
+├── pe.rs         — PE structure definitions, .text section discovery
+├── crypto.rs     — Multi-byte XOR decryption (JIT pattern)
+└── stomping.rs   — Core stomping engine (7-step pipeline)
 ```
 
-Release build with minimal output:
+| Module | Responsibility |
+|--------|---------------|
+| `pe.rs` | DOS/NT/Section headers, `find_text_section()` |
+| `crypto.rs` | XOR key, encrypted payload, `decrypt_to()` |
+| `stomping.rs` | Load DLL → parse → clear → decrypt → execute |
+| `main.rs` | Feature-gated debug macros, thin `main()` |
+
+## Build
+
 ```bash
+# Release (silent, optimized, stripped)
 cargo build --release
+
+# Debug (verbose output)
+cargo build
+
+# Release with debug output
+cargo build --release --features debug_output
 ```
 
-## Code Structure
+### Build Profile
 
-### Core Functions
-
-#### `decrypt_shellcode_in_place(dest: *mut u8, dest_size: usize)`
-Performs in-place XOR decryption directly to target memory, eliminating intermediate buffers.
-
-#### `find_text_section(dll_handle: HMODULE) -> Result<TextSectionInfo>`
-Parses PE headers to locate the `.text` section of the loaded module.
-
-#### `change_memory_protection(address: *mut c_void, size: usize) -> Result<PAGE_PROTECTION_FLAGS>`
-Modifies memory permissions while maintaining stealth by avoiding RWX combinations.
-
-#### `prepare_stomping_area(text_info: &TextSectionInfo)`
-Clears the target section in preparation for shellcode injection.
-
-#### `decrypt_and_execute_stomped_module(text_info: &TextSectionInfo) -> Result<()>`
-Performs JIT decryption and immediate execution with minimal exposure time.
-
-### Data Structures
-
-#### `TextSectionInfo`
-```rust
-struct TextSectionInfo {
-    base_address: *mut c_void,
-    size: usize,
-    original_entry_point: *mut c_void,
-}
-```
-
-#### PE Structure Definitions
-- `ImageDosHeader`: DOS header for PE file format
-- `IMAGE_NT_HEADERS64`: NT headers for 64-bit PE files
-- `ImageSectionHeader`: Section header information
+| Setting | Value | Purpose |
+|---------|-------|---------|
+| `opt-level` | `"z"` | Minimize binary size |
+| `lto` | `true` | Link-time optimization |
+| `codegen-units` | `1` | Maximum optimization |
+| `panic` | `"abort"` | No unwinding code |
+| `strip` | `true` | Remove all symbols |
 
 ## Usage
 
-### Basic Execution
+### 1. Prepare Encrypted Shellcode
 
-The program executes automatically upon launch:
+Update the `SHELLCODE_ENCRYPTED` array in `src/crypto.rs` with your XOR-encrypted payload:
 
-```bash
-./Stomping_section.exe
+```rust
+// Encrypt: encrypted[i] = raw_shellcode[i] ^ XOR_KEY[i % 32]
+pub const SHELLCODE_ENCRYPTED: [u8; N] = [ /* your encrypted bytes */ ];
 ```
 
-### Debug Mode
-
-Enable verbose output by building in debug mode:
+### 2. Build & Execute
 
 ```bash
-cargo run
+cargo build --release
+.\target\release\module-stomping.exe
 ```
 
-### Configuration
+## Technical Details
 
-Modify the following constants to customize behavior:
+- **Target DLL**: `bcrypt.dll` (configurable in `stomping.rs`)
+- **Section**: `.text` — entire code section replaced
+- **Encryption**: Multi-byte XOR with 32-byte key
+- **Memory Flow**: `PAGE_READWRITE` → write → `PAGE_EXECUTE_READ` → execute
+- **Thread**: Created via `CreateThread` at the section base address
+- **PE Parsing**: Manual struct definitions — no external PE crate dependency
 
-- `SHELLCODE_ENCRYPTED`: Encrypted payload bytes
-- `XOR_KEY`: Decryption key
-- Target DLL: Change from "bcrypt.dll" in `load_target_dll()`
+## Legal Disclaimer
 
-## Security Notice
-
-This code is provided for educational and research purposes only. It demonstrates advanced Windows internals and security concepts. Usage should be limited to:
-
-- Security research and analysis
-- Malware analysis environments
-- Authorized penetration testing
-- Educational purposes in controlled environments
-
-**Warning**: Unauthorized use of code injection techniques may violate computer fraud and abuse laws. Always ensure proper authorization before testing on any system.
-
-## Technical Limitations
-
-- Requires administrative privileges for some operations
-- Target DLL must be loadable in the current process context
-- Shellcode size cannot exceed target section size
-- Windows Defender and other AV solutions may flag this behavior
-
-## References
-
-- Windows PE Format Documentation
-- Process Injection Techniques
-- Windows Memory Protection Constants
-- Rust Windows Crate Documentation
-
-## License
-
-This project is provided as-is for educational purposes. Use at your own risk and responsibility.
+> **This software is intended exclusively for educational and security research purposes.** Unauthorized use against systems you do not own or have explicit permission to test is illegal. The author assumes no liability for misuse.
 
 ## Author
-3xploit666
 
-[LinkedIn Profile](https://www.linkedin.com/in/javier-perez-0582ba1b1/)
+**[@3xploit666](https://github.com/3xploit666)**
 
-Developed for security research and educational demonstrations of Windows injection techniques.
+---
+
+<div align="center">
+
+*For educational and authorized security testing purposes only.*
+
+</div>
